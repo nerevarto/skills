@@ -71,6 +71,12 @@ investigation:
     When investigating issues in this project:
     - Guidance line 1
     - Guidance line 2
+
+# Optional: Ralph Wiggum iterative development configuration
+ralph:
+  enabled: true                    # Enable/disable Ralph loop for eligible tickets
+  max_iterations: 10               # Maximum iterations before giving up
+  completion_promise: "COMPLETE"   # Token to signal task completion
 ```
 
 ## Invocation
@@ -205,12 +211,36 @@ If type is `CODE_CHANGE`:
    - Identify what code changes are needed
    - Use the `suggested_files` from the classifier output
 
-2. **Explore Codebase**
+2. **Check Ralph-Eligibility**
+
+   The classifier output includes `ralph_eligibility` assessment:
+   ```json
+   {
+     "eligible": true,
+     "confidence": 0.8,
+     "criteria_met": ["existing_tests", "specific_files"],
+     "disqualifiers": [],
+     "reason": "Ralph-eligible: existing_tests, specific_files"
+   }
+   ```
+
+   A ticket is Ralph-eligible if it has **verifiable success criteria**:
+   - Existing tests cover the affected area
+   - Explicit test requirements in ticket ("add test", "ensure tests pass")
+   - Build/lint criteria mentioned ("fix build", "type error")
+   - Specific file/function references
+
+   **Disqualifying factors:**
+   - Vague language: "improve", "enhance", "better" without metrics
+   - Design decisions required: "decide how to...", "choose between..."
+   - No specific file/function scope
+
+3. **Explore Codebase**
    - Use Grep/Glob to find relevant code
    - Read existing implementations for patterns
    - Understand the context before making changes
 
-3. **Create Feature Branch**
+4. **Create Feature Branch**
    ```
    Use mcp__github__create_branch with:
    - owner: {from repo config}
@@ -219,14 +249,48 @@ If type is `CODE_CHANGE`:
    - from_branch: {base_branch from config}
    ```
 
-4. **Implement Changes**
+5. **Implement Changes**
+
+   **If Ralph-eligible AND `ralph.enabled` is true in config:**
+
+   Invoke the Ralph Wiggum loop for iterative development:
+   ```
+   Use Skill tool with:
+   - skill: "ralph-wiggum:ralph-loop"
+   - args: (see prompt template below)
+   ```
+
+   Ralph loop prompt template:
+   ```
+   Implement {TICKET-KEY}: {summary}.
+
+   Requirements:
+   {description}
+
+   Files to modify: {suggested_files}
+
+   Success criteria:
+   - All tests pass
+   - Build succeeds
+   - {any explicit acceptance criteria from ticket}
+
+   Output <promise>COMPLETE</promise> when implementation is verified.
+   --max-iterations {ralph.max_iterations from config, default 10}
+   --completion-promise "{ralph.completion_promise from config, default COMPLETE}"
+   ```
+
+   The Ralph loop will iterate until success criteria are met or max iterations reached.
+
+   **If NOT Ralph-eligible OR `ralph.enabled` is false:**
+
+   Use single-pass implementation:
    - Make the required code changes using Edit tool
    - Follow existing patterns in the codebase
    - Keep changes minimal and focused
 
-5. **Verification Loop** (max 3 attempts)
+6. **Verification** (single-pass only, Ralph handles its own verification)
 
-   Run verification:
+   For single-pass implementation, run verification loop (max 3 attempts):
    ```bash
    python ~/.claude/skills/jira-processor/scripts/verify_build.py --run-all --json
    ```
@@ -237,7 +301,7 @@ If type is `CODE_CHANGE`:
    - Re-run verification
    - After 3 failed attempts, log error and skip PR creation
 
-6. **Create Pull Request**
+7. **Create Pull Request**
    ```
    Use mcp__github__create_pull_request with:
    - owner: {from repo config}
@@ -287,14 +351,16 @@ After processing all tickets, output a summary:
 **PRs created:** {count}
 **Investigations completed:** {count}
 **Tickets skipped:** {count}
+**Ralph loops used:** {count}
 
 ### Details
 
-| Ticket | Type | Result |
-|--------|------|--------|
-| PROJ-123 | CODE_CHANGE | PR #456 created |
-| PROJ-789 | INVESTIGATION | Comment added |
-| PROJ-456 | SKIP | Blocked by external dependency |
+| Ticket | Type | Ralph Used | Iterations | Result |
+|--------|------|------------|------------|--------|
+| PROJ-123 | CODE_CHANGE | Yes | 4 | PR #456 created |
+| PROJ-789 | CODE_CHANGE | No | - | PR #457 created |
+| PROJ-101 | INVESTIGATION | - | - | Comment added |
+| PROJ-456 | SKIP | - | - | Blocked by external dependency |
 ```
 
 ## Error Handling

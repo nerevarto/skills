@@ -13,7 +13,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils.jira_patterns import classify_ticket_type, extract_urls
+from utils.jira_patterns import classify_ticket_type, extract_urls, assess_ralph_eligibility
 from utils.code_mapper import map_keywords_to_files, extract_index_from_urls, extract_index_from_text, get_primary_files
 
 
@@ -25,6 +25,10 @@ def analyze_ticket(summary: str, description: str) -> dict:
     if classification["type"] == "CODE_CHANGE":
         classification["suggested_files"] = get_primary_files(full_text)
         classification["file_mappings"] = map_keywords_to_files(full_text)[:5]
+
+        ticket_data = {"summary": summary, "description": description}
+        ralph_assessment = assess_ralph_eligibility(ticket_data, classification)
+        classification["ralph_eligibility"] = ralph_assessment
 
     elif classification["type"] == "INVESTIGATION":
         urls = extract_urls(full_text)
@@ -60,6 +64,15 @@ def main():
 
         if result.get("suggested_indices"):
             print(f"Suggested indices: {', '.join(result['suggested_indices'])}")
+
+        if result.get("ralph_eligibility"):
+            ralph = result["ralph_eligibility"]
+            print(f"Ralph-eligible: {ralph['eligible']}")
+            print(f"Ralph confidence: {ralph['confidence']:.2f}")
+            if ralph.get("criteria_met"):
+                print(f"Criteria met: {', '.join(ralph['criteria_met'])}")
+            if ralph.get("disqualifiers"):
+                print(f"Disqualifiers: {', '.join(ralph['disqualifiers'])}")
 
 
 if __name__ == "__main__":

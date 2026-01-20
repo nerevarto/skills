@@ -25,6 +25,30 @@ SKIP_KEYWORDS = [
     "documentation only", "write docs", "update readme"
 ]
 
+TEST_KEYWORDS = [
+    "add test", "write test", "ensure tests pass", "tests should pass",
+    "unit test", "integration test", "test coverage", "pytest",
+    "test for", "verify with tests", "run tests"
+]
+
+BUILD_KEYWORDS = [
+    "fix build", "build failure", "lint error", "type error",
+    "mypy", "pylint", "flake8", "ruff", "black", "isort",
+    "compilation error", "syntax error", "import error"
+]
+
+VAGUE_KEYWORDS = [
+    "improve", "enhance", "better", "optimize", "cleanup",
+    "refactor where needed", "as needed", "if possible",
+    "consider", "maybe", "perhaps", "could", "might want to"
+]
+
+DESIGN_DECISION_KEYWORDS = [
+    "decide how", "choose between", "evaluate options",
+    "design", "architect", "propose", "research alternatives",
+    "which approach", "what strategy", "determine the best"
+]
+
 ISBN_PATTERN = re.compile(r'\b(978\d{10})\b')
 FILE_PATTERN = re.compile(r'\b[\w/]+\.(py|yaml|json|xml)\b')
 FUNCTION_PATTERN = re.compile(r'\b(def\s+\w+|class\s+\w+|\w+\(\))\b')
@@ -132,4 +156,108 @@ def classify_ticket_type(summary: str, description: str) -> Dict:
         "confidence": 0.5,
         "reason": "No clear action indicators found",
         "extracted_data": extracted_data
+    }
+
+
+def has_test_file_for_refs(file_refs: List[str]) -> bool:
+    """Check if file references likely have corresponding test files."""
+    for ref in file_refs:
+        if ref.endswith('.py'):
+            base_name = ref.replace('.py', '')
+            if any(pattern in base_name for pattern in ['test_', '_test', 'tests']):
+                return True
+            if 'config/' in ref or 'lib/' in ref or 'src/' in ref:
+                return True
+    return False
+
+
+def assess_ralph_eligibility(ticket_data: Dict, classification: Dict) -> Dict:
+    """
+    Assess whether a CODE_CHANGE ticket is Ralph-eligible.
+
+    Ralph-eligible tickets have verifiable success criteria that can be
+    checked programmatically (tests, build, lint, etc.).
+
+    Args:
+        ticket_data: Dict with 'summary' and 'description' keys
+        classification: Result from classify_ticket_type()
+
+    Returns:
+        Dict with:
+            - eligible: bool
+            - confidence: float (0.0 to 1.0)
+            - criteria_met: list of criteria that were met
+            - disqualifiers: list of reasons that reduce eligibility
+            - reason: human-readable explanation
+    """
+    if classification.get("type") != "CODE_CHANGE":
+        return {
+            "eligible": False,
+            "confidence": 0.0,
+            "criteria_met": [],
+            "disqualifiers": ["not_code_change"],
+            "reason": "Not a CODE_CHANGE ticket"
+        }
+
+    full_text = f"{ticket_data.get('summary', '')}\n{ticket_data.get('description', '')}"
+    extracted_data = classification.get("extracted_data", {})
+    file_refs = extracted_data.get("file_refs", [])
+
+    score = 0
+    criteria_met = []
+    disqualifiers = []
+
+    if has_test_file_for_refs(file_refs):
+        score += 3
+        criteria_met.append("existing_tests")
+
+    test_matches = find_matching_keywords(full_text, TEST_KEYWORDS)
+    if test_matches:
+        score += 2
+        criteria_met.append("test_requirements")
+
+    build_matches = find_matching_keywords(full_text, BUILD_KEYWORDS)
+    if build_matches:
+        score += 2
+        criteria_met.append("build_criteria")
+
+    if len(file_refs) >= 1:
+        score += 1
+        criteria_met.append("specific_files")
+
+    if extracted_data.get("function_refs"):
+        score += 1
+        criteria_met.append("specific_functions")
+
+    vague_matches = find_matching_keywords(full_text, VAGUE_KEYWORDS)
+    if vague_matches:
+        score -= 2
+        disqualifiers.append("vague_requirements")
+
+    design_matches = find_matching_keywords(full_text, DESIGN_DECISION_KEYWORDS)
+    if design_matches:
+        score -= 3
+        disqualifiers.append("requires_design_decisions")
+
+    if not file_refs and not extracted_data.get("function_refs"):
+        score -= 1
+        disqualifiers.append("no_specific_scope")
+
+    eligible = score >= 3 and len([d for d in disqualifiers if d != "no_specific_scope"]) == 0
+    confidence = max(min(score / 6, 1.0), 0.0)
+
+    if eligible:
+        reason = f"Ralph-eligible: {', '.join(criteria_met)}"
+    else:
+        if disqualifiers:
+            reason = f"Not Ralph-eligible: {', '.join(disqualifiers)}"
+        else:
+            reason = f"Not Ralph-eligible: insufficient verifiable criteria (score: {score})"
+
+    return {
+        "eligible": eligible,
+        "confidence": confidence,
+        "criteria_met": criteria_met,
+        "disqualifiers": disqualifiers,
+        "reason": reason
     }
