@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""
+Analyze Jira ticket to classify its type and extract relevant data.
+
+Usage:
+    python analyze_ticket.py --summary "Ticket summary" --description "Ticket description"
+    python analyze_ticket.py --json  # Output as JSON
+"""
+
+import argparse
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils.jira_patterns import classify_ticket_type, extract_urls
+from utils.code_mapper import map_keywords_to_files, extract_index_from_urls, extract_index_from_text, get_primary_files
+
+
+def analyze_ticket(summary: str, description: str) -> dict:
+    """Analyze a Jira ticket and return classification with extracted data."""
+    classification = classify_ticket_type(summary, description)
+    full_text = f"{summary}\n{description}"
+
+    if classification["type"] == "CODE_CHANGE":
+        classification["suggested_files"] = get_primary_files(full_text)
+        classification["file_mappings"] = map_keywords_to_files(full_text)[:5]
+
+    elif classification["type"] == "INVESTIGATION":
+        urls = extract_urls(full_text)
+        indices_from_urls = extract_index_from_urls(urls)
+        indices_from_text = extract_index_from_text(full_text)
+        all_indices = list(set(indices_from_urls + indices_from_text))
+        classification["suggested_indices"] = all_indices if all_indices else []
+
+    return classification
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Analyze Jira ticket for classification")
+    parser.add_argument("--summary", required=True, help="Ticket summary/title")
+    parser.add_argument("--description", default="", help="Ticket description")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+    args = parser.parse_args()
+
+    result = analyze_ticket(args.summary, args.description)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Type: {result['type']}")
+        print(f"Confidence: {result['confidence']:.2f}")
+        print(f"Reason: {result['reason']}")
+
+        if result.get("extracted_data", {}).get("isbns"):
+            print(f"ISBNs found: {', '.join(result['extracted_data']['isbns'])}")
+
+        if result.get("suggested_files"):
+            print(f"Suggested files: {', '.join(result['suggested_files'])}")
+
+        if result.get("suggested_indices"):
+            print(f"Suggested indices: {', '.join(result['suggested_indices'])}")
+
+
+if __name__ == "__main__":
+    main()
