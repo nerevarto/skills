@@ -91,9 +91,14 @@ def find_matching_keywords(text: str, keywords: List[str]) -> List[str]:
     return [kw for kw in keywords if kw.lower() in text_lower]
 
 
-def classify_ticket_type(summary: str, description: str) -> Dict:
+def classify_ticket_type(summary: str, description: str, comments: str = "") -> Dict:
     """
     Classify ticket into CODE_CHANGE, INVESTIGATION, or SKIP.
+
+    Args:
+        summary: Ticket summary/title
+        description: Ticket description
+        comments: Formatted comments string (optional)
 
     Returns dict with:
         - type: str ("CODE_CHANGE", "INVESTIGATION", "SKIP")
@@ -102,6 +107,8 @@ def classify_ticket_type(summary: str, description: str) -> Dict:
         - extracted_data: dict with ISBNs, URLs, file refs, etc.
     """
     full_text = f"{summary}\n{description}"
+    if comments:
+        full_text = f"{full_text}\n{comments}"
 
     extracted_data = {
         "isbns": extract_isbns(full_text),
@@ -200,6 +207,8 @@ def assess_ralph_eligibility(ticket_data: Dict, classification: Dict) -> Dict:
         }
 
     full_text = f"{ticket_data.get('summary', '')}\n{ticket_data.get('description', '')}"
+    if ticket_data.get('comments'):
+        full_text = f"{full_text}\n{ticket_data.get('comments', '')}"
     extracted_data = classification.get("extracted_data", {})
     file_refs = extracted_data.get("file_refs", [])
 

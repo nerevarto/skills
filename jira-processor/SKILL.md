@@ -130,15 +130,90 @@ Use `mcp__atlassian__searchJiraIssuesUsingJql` with appropriate JQL.
 
 ### Step 3: Process Each Ticket
 
-For each ticket, fetch full details and classify:
+For each ticket, fetch full details including comments and classify:
 
-#### 3a. Classify Ticket Type
+#### 3a. Fetch Ticket with Comments
 
-Run the classifier:
+When fetching the ticket, include comments by using:
+```
+mcp__atlassian__getJiraIssue with:
+- cloudId: (from step 1)
+- issueIdOrKey: {TICKET-KEY}
+- expand: "comment"
+```
+
+The response will include `fields.comment.comments[]` with each comment containing:
+- `author.displayName`: Who wrote the comment
+- `body`: Comment content in ADF format
+- `created`: Timestamp
+
+#### 3a-bis. Check for Previous Engagement
+
+Before classifying, check if current user has already commented on the ticket:
+
+1. Get current user's account ID (already retrieved in Step 1 from `atlassianUserInfo`)
+2. Search comments where `author.accountId` matches current user's account ID
+3. **If comments by current user found:**
+   - Get timestamp of user's most recent comment
+   - Check for comments by OTHER users after that timestamp
+   - **If newer comments from others exist:** Delegate to jira-followup:
+     ```
+     Use Skill tool with:
+     - skill: "jira-followup"
+     - args: "{TICKET-KEY} --user-account-id {account_id}"
+     ```
+     Then continue to next ticket.
+   - **If no newer comments from others:** Skip ticket (already handled, no follow-up needed)
+     Log: "Skipping {TICKET-KEY}: Already processed, no new follow-up comments"
+     Continue to next ticket.
+4. **If current user has not commented:** Continue with normal classification (step 3b onwards)
+
+Use the comment detector utilities:
+```python
+from utils.comment_detector import (
+    find_user_comments,
+    has_followup_from_others,
+    get_latest_user_comment,
+    get_comments_after
+)
+
+comments = ticket["fields"]["comment"]["comments"]
+user_account_id = user_info["accountId"]
+
+if find_user_comments(comments, user_account_id):
+    if has_followup_from_others(comments, user_account_id):
+        # Delegate to jira-followup skill
+        pass
+    else:
+        # Skip - already handled, no new comments
+        pass
+else:
+    # Process normally - first time seeing this ticket
+    pass
+```
+
+#### 3b. Parse Comments
+
+Extract plain text from ADF-formatted comments using the parser:
+```python
+from utils.adf_parser import parse_jira_comments, format_comments_for_analysis
+
+# Parse the comments array from the Jira response
+comments = parse_jira_comments(ticket["fields"]["comment"]["comments"])
+# Format into a single string for the classifier
+comments_text = format_comments_for_analysis(comments)
+```
+
+Or manually extract text from each comment's ADF body by recursively processing `content` nodes and extracting `text` values.
+
+#### 3c. Classify Ticket Type
+
+Run the classifier with comments included:
 ```bash
 python ~/.claude/skills/jira-processor/scripts/analyze_ticket.py \
   --summary "TICKET_SUMMARY" \
   --description "TICKET_DESCRIPTION" \
+  --comments "FORMATTED_COMMENTS" \
   --json
 ```
 
@@ -150,13 +225,13 @@ The classifier returns one of three types:
 | `INVESTIGATION` | Run diagnostics, add findings to Jira |
 | `SKIP` | Log reason and continue to next ticket |
 
-#### 3b. Handle SKIP Type
+#### 3d. Handle SKIP Type
 
 If type is `SKIP`:
 1. Log: "Skipping {TICKET-KEY}: {reason}"
 2. Continue to next ticket
 
-#### 3c. Handle INVESTIGATION Type
+#### 3e. Handle INVESTIGATION Type
 
 If type is `INVESTIGATION`:
 
@@ -202,7 +277,7 @@ If type is `INVESTIGATION`:
 
 7. Continue to next ticket
 
-#### 3d. Handle CODE_CHANGE Type
+#### 3f. Handle CODE_CHANGE Type
 
 If type is `CODE_CHANGE`:
 
