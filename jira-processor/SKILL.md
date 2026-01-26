@@ -21,8 +21,10 @@ jira:
   projects:
     - key: PROJECT1
       title_filter: "Prefix*"  # Optional: filter by title pattern
+      epic_filter: null        # Optional: filter to tickets within specific epic
     - key: PROJECT2
       title_filter: null       # No filter - all assigned tickets
+      epic_filter: "PROJ-100"  # Only tickets in this epic
   statuses:
     - "Open"
     - "In Progress"
@@ -125,6 +127,7 @@ Follow these steps in order:
   project = {PROJECT_KEY} AND assignee = currentUser() AND status in ({statuses})
   ```
 - If project has `title_filter`, add: `AND summary ~ "{title_filter}"`
+- If project has `epic_filter`, add: `AND "Epic Link" = {epic_filter}`
 
 Use `mcp__atlassian__searchJiraIssuesUsingJql` with appropriate JQL.
 
