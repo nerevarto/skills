@@ -79,6 +79,15 @@ ralph:
   enabled: true                    # Enable/disable Ralph loop for eligible tickets
   max_iterations: 10               # Maximum iterations before giving up
   completion_promise: "COMPLETE"   # Token to signal task completion
+
+# Optional: code review configuration
+review:
+  enabled: true                    # Enable/disable review step (default: true)
+  style_review: true               # Run code-review skill if available (default: true)
+  deep_review: true                # Run deep-review skill if available (default: true)
+  requirements_alignment: true     # Check diff against ticket requirements (default: true)
+  max_fix_attempts: 3              # Max attempts to fix style review issues (default: 3)
+  max_alignment_attempts: 2        # Max attempts to fix alignment issues (default: 2)
 ```
 
 ## Invocation
@@ -379,7 +388,39 @@ If type is `CODE_CHANGE`:
    - Re-run verification
    - After 3 failed attempts, log error and skip PR creation
 
-7. **Create Pull Request**
+7. **Code Review & Requirements Alignment** (runs for both Ralph loop and single-pass paths)
+
+   Read the `review` section from `.claude/jira-config.yaml`. All sub-steps default to enabled when the section is absent.
+
+   **7a. Stage changes for review**
+   ```bash
+   git add -A
+   ```
+
+   **7b. Run style/pattern review (conditional)**
+   - Check if `.claude/skills/code-review/SKILL.md` exists in the project
+   - If it exists and `review.style_review` is not `false`:
+     - Invoke via `Skill` tool with `skill: "code-review"`
+     - If errors found: fix issues, re-stage (`git add -A`), re-run (max `review.max_fix_attempts`, default 3 attempts)
+   - If the skill file doesn't exist, skip gracefully
+
+   **7c. Run architectural review (conditional)**
+   - Check if `.claude/skills/deep-review/SKILL.md` exists in the project
+   - If it exists and `review.deep_review` is not `false`:
+     - Invoke via `Skill` tool with `skill: "deep-review"`
+     - Advisory only: note significant issues for inclusion in PR description, but do not enter a fix loop
+   - If the skill file doesn't exist, skip gracefully
+
+   **7d. Requirements alignment review (always runs unless `review.requirements_alignment` is `false`)**
+   - Run `git diff {base_branch}...HEAD` to see all changes on the branch
+   - Compare the diff against the original ticket summary, description, and comments (already in context from Step 3)
+   - Check:
+     - Every ticket requirement has a corresponding code change
+     - No drift beyond the ticket's scope
+     - No obvious logic errors in the implementation
+   - If misaligned: fix implementation, re-verify (re-run Step 6 if single-pass), re-review (max `review.max_alignment_attempts`, default 2 attempts)
+
+8. **Create Pull Request**
    ```
    Use mcp__github__create_pull_request with:
    - owner: {from repo config}
@@ -408,11 +449,14 @@ If type is `CODE_CHANGE`:
    - [x] Tests pass
    - [x] Build succeeds
 
-   ---
-   🤖 Generated with Claude Code
+   ## Review
+
+   - [x] Style review passed (or "N/A" if skill not available)
+   - [x] Architectural review passed (or "N/A" if skill not available)
+   - [x] Requirements alignment verified against {TICKET-KEY}
    ```
 
-7. **Add Comment to Jira**
+9. **Add Comment to Jira**
    ```
    Use mcp__atlassian__addCommentToJiraIssue with:
    - commentBody: "PR created: {PR_URL}\n\nOnce merged and deployed, this should address the issue."
