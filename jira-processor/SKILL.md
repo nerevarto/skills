@@ -249,7 +249,10 @@ If type is `INVESTIGATION`:
 
 1. **Load Project Context**
    - Read `project` section from `.claude/jira-config.yaml` for project description and domain keywords
-   - Read `investigation` section for available skills and guidance
+   - Read `investigation` section for:
+     - `available_skills` and their descriptions
+     - `data_sources` (if defined) - note the source types, use cases, and query templates
+     - `guidance` for investigation patterns
 
 2. **Check Project Relevance**
    - Determine if the ticket relates to this codebase based on:
@@ -264,12 +267,26 @@ If type is `INVESTIGATION`:
    - If needed, explore relevant code using Grep/Glob/Read to understand the issue
 
 4. **Run Diagnostics (if applicable)**
+
+   A. **Run Skills**
    - Check `investigation.available_skills` in config
    - If a skill is relevant to the issue, invoke it using the Skill tool
    - Example: For ISBN visibility issues with index-filter-test available, run `/index-filter-test --isbn {isbn}`
 
+   B. **Query Data Sources (if configured)**
+   - Check if `investigation.data_sources` exists in config
+   - For each defined data source, check if any `use_cases` match the ticket:
+     - Match ticket keywords/patterns against use case descriptions
+     - Examples: "value changed" → historical comparison, "missing data" → existence check
+   - If a use case matches:
+     - Use the `query_example` template from config
+     - Substitute identifiers from ticket (ISBNs, IDs, dates)
+     - Execute the query using appropriate tool (Bash for CLI, MCP for APIs)
+     - Capture results for findings
+
 5. **Formulate Findings**
-   - Based on code analysis and diagnostic results
+   - Based on code analysis, skill diagnostics, AND data source query results
+   - If data source queries ran, include concrete findings with evidence
    - Determine root cause or likely explanation
    - Suggest next steps or resolution
 
